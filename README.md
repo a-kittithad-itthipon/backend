@@ -11,6 +11,10 @@ Follow the steps below to set up the project locally:
 
 ```bash
 py -3 -m venv .venv
+
+or
+
+python -m venv .venv
 ```
 
 2. Activate the Virtual Environtment
