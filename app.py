@@ -73,6 +73,7 @@ def unzip_here(zip_path, target_dir):
             shutil.move(src, dst)
         os.rmdir(nested)
 
+
 def validate_docker_compose(project_path, username, container_name):
     compose_file = None
     conn = get_db_connection()
@@ -81,10 +82,11 @@ def validate_docker_compose(project_path, username, container_name):
     user_data = cursor.fetchone()
     max_containers = user_data["max_containers"]
     for fname in ["docker-compose.yml", "docker-compose.yaml"]:
-    path = os.path.join(project_path, fname)
-    if os.path.exists(path):
-        compose_file = path
-        break
+        path = os.path.join(project_path, fname)
+
+        if os.path.exists(path):
+            compose_file = path
+            break
     
     if not compose_file:
         return  "docker-compose.yml file not found"
@@ -109,6 +111,10 @@ def validate_docker_compose(project_path, username, container_name):
         return "No Service Found"
 
     for service_name, service in services.items():
+        if "container_name" in service:
+            return f"service '{service_name}' cannot define container_name"
+        
+
         if "image" not in service and "build" not in service:
             return f"Service '{service_name}' Must Have Either 'image' or 'build' Defined."
         
@@ -120,7 +126,7 @@ def validate_docker_compose(project_path, username, container_name):
             for path in paths:
                 parts = path.split(":")
                 host_path = parts[0]
-                if host_path != f"./{username}/{container_name}" and host_path != f"{username}/{container_name}":
+                if host_path != "./":
                     return f"service '{service_name}' volume paths can only map to '/{username}/{container_name}'"
         
         value_img = service.get("image", "")
@@ -128,9 +134,11 @@ def validate_docker_compose(project_path, username, container_name):
             return f"service '{service_name}' is Database (Not Allowed) Please Connect Your Database"
 
         if "labels" in service:
-            service["labels"].update({ f"user={username}", f"container={container_name}" })
+            service["labels"].update({"dockade.user": username,"dockade.container": container_name})
         else:
-            service["labels"] = { f"user={username}", f"container={container_name}" }
+            service["labels"] = {"dockade.user": username,"dockade.container": container_name}
+
+        service["container_name"] = f"{username}_{container_name}_{service_name}"
 
         if "networks" in service:
             nets = service["networks"]
