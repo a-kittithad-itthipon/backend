@@ -7,13 +7,13 @@
 
 Follow the steps below to set up the project locally:
 
-### 1. Create a Virtual Environtment
+1. Create a Virtual Environtment
 
 ```bash
 py -3 -m venv .venv
 ```
 
-### 2. Activate the Virtual Environtment
+2. Activate the Virtual Environtment
 
 Windows:
 
@@ -27,7 +27,7 @@ Mac/Linux:
 source .venv/bin/activate
 ```
 
-### 3. Install Dependencies
+3. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
