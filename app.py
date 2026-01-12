@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 import zipfile
 import shutil
 import yaml
+import subprocess
 
 load_dotenv()
 
@@ -124,9 +125,12 @@ def validate_docker_compose(project_path, username, container_name):
             paths = service["volumes"]
             for path in paths:
                 parts = path.split(":")
-                host_path = parts[0]
-                if host_path != f"./":
-                    return f"service '{service_name}' volume paths can only map to '/{username}/{container_name}'"
+                host_path = parts[0].strip()
+                if ".." in host_path or host_path.startswith("/") or host_path.startswith("~"):
+                    return f"Invalid volume path '{host_path}'. Use relative paths starting with './' only."
+    
+                if not host_path.startswith("./"):
+                    return f"Volume path '{host_path}' must be relative (start with './')"
         
         value_img = service.get("image", "")
         if "mysql" in value_img or "postgres" in value_img or "mariadb" in value_img: 
@@ -166,8 +170,64 @@ def validate_docker_compose(project_path, username, container_name):
     except Exception as e:
         return f"Failed to save updated docker-compose file: {str(e)}"
 
-    return True
+    return True, value_container, services
 
+def run_docker_project(project_path, domain_name):
+    try:
+        cmd = ["docker", "compose", "-p", domain_name, "up", "-d", "--build"]
+        
+        result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=300)
+
+        full_log = result.stdout + "\n" + result.stderr
+        
+        if result.returncode == 0:
+            return True, full_log
+        else:
+            return False, full_log
+
+    except subprocess.TimeoutExpired:
+        return False, "Deployment Timed Out during Build or Run process"
+    except Exception as e:
+        return False, str(e)
+
+def update_system_docker(username, value_container, container_name, port, domain, full_log, project_path, project_type, services, domain_name, is_run):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM users WHERE username =  %s",(username,))
+        user_data = cursor.fetchone()
+        if not user_data:
+            return False, f"User '{username}' not found"
+
+        cursor.execute("UPDATE users SET container = %s WHERE username =  %s",(str(value_container), username))
+
+        user_id = user_data['id']
+        for service_name in services.keys():
+            if is_run:
+                status = "running"
+                action = "SUCCESS"
+            else:
+                status = "stopped"
+                action = "FAILED"
+
+            full_c_name = f"{domain_name}_{username}_{container_name}_{service_name}"
+            path = f"{project_path}"
+            cursor.execute("INSERT INTO containers (user_id, owner, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, status, port, domain, path, project_type))
+            cursor.execute("INSERT INTO activity_logs (user_id, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s)", (user_id, full_c_name, 'DEPLOY', action,full_log))
+
+        conn.commit()
+        return True, "System updated successfully"
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"DB Update Error: {e}")
+        return False, str(e)
+    finally:
+        if conn:
+            conn.close()
 
 @app.route("/api/register", methods=["POST"])
 def register():
@@ -440,6 +500,7 @@ def deluser():
 @app.route("/api/users", methods=["GET"])
 @jwt_required()
 def users_table():
+    conn = None
     try:
         data = get_jwt()
         username = data["username"]
@@ -585,7 +646,8 @@ def upload():
         file = request.files["file"]
         container_name = request.form.get("container_name")
         port = request.form.get("port")
-        domain = request.form.get("domain")
+        domain_name = request.form.get("domain")
+        domain = f"{domain_name}.addp.site"
         project_type = request.form.get("type")
         newfile = request.form.get("newfile")
 
@@ -606,12 +668,19 @@ def upload():
             file.save(full_path)
             try:
                 unzip_here(full_path,full_path_floder)
-                validate_result = validate_docker_compose(full_path_floder, username, container_name)
+                validate_result, value_container, services = validate_docker_compose(full_path_floder, username, container_name)
                 if validate_result != True:
                     shutil.rmtree(full_path_floder)
                     os.remove(full_path)
                     return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
+                is_run , logs = run_docker_project(full_path_floder,domain_name)
+                if not is_run:
+                    return jsonify({"error": logs}) , 400
+                result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, full_path_floder, project_type, services, domain_name, is_run)
                 os.remove(full_path)
+                if not result_stat:
+                    return jsonify({"error": "Deploy Failed"}), 400
+
                 return jsonify({"message": f"Deploy Success Create File {container_name}"}), 200
             except Exception as e:
                 print("Fetch Data Error:", e)
@@ -627,12 +696,19 @@ def upload():
                     shutil.rmtree(new_full_path_floder)
                     os.makedirs(new_full_path_floder)
                     unzip_here(new_full_path,new_full_path_floder)
-                    validate_result = validate_docker_compose(new_full_path_floder, username, container_name)
+                    validate_result, value_container, services = validate_docker_compose(new_full_path_floder, username, container_name)
                     if validate_result != True:
                         shutil.rmtree(new_full_path_floder)
                         os.remove(new_full_path)
                         return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
+                    is_run , logs = run_docker_project(new_full_path_floder,domain_name)
+                    if not is_run:
+                        return jsonify({"error": logs}) , 400
+                    result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, new_full_path_floder, project_type, services, domain_name, is_run)
                     os.remove(new_full_path)
+                    if not result_stat:
+                        return jsonify({"error": "Deploy Failed"}), 400
+
                     return jsonify({"message": f"Deploy Success By New File {container_name}"}), 200
                 except Exception as e:
                     print("Fetch Data Error:", e)
