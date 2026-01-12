@@ -595,6 +595,11 @@ def upload():
             file.save(full_path)
             try:
                 unzip_here(full_path,full_path_floder)
+                validate_result = validate_docker_compose(full_path_floder, username, container_name)
+                if validate_result != True:
+                    shutil.rmtree(full_path_floder)
+                    os.remove(full_path)
+                    return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
                 os.remove(full_path)
                 return jsonify({"message": f"Deploy Success Create File {container_name}"}), 200
             except Exception as e:
@@ -611,6 +616,11 @@ def upload():
                     shutil.rmtree(new_full_path_floder)
                     os.makedirs(new_full_path_floder)
                     unzip_here(new_full_path,new_full_path_floder)
+                    validate_result = validate_docker_compose(new_full_path_floder, username, container_name)
+                    if validate_result != True:
+                        shutil.rmtree(new_full_path_floder)
+                        os.remove(new_full_path)
+                        return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
                     os.remove(new_full_path)
                     return jsonify({"message": f"Deploy Success By New File {container_name}"}), 200
                 except Exception as e:
