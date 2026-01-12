@@ -162,6 +162,12 @@ def validate_docker_compose(project_path, username, container_name):
 
     if not networks["lan-net"].get("external"):
             return "lan-net must be external network"
+    
+    try:
+        with open(compose_file, "w") as f:
+            yaml.dump(compose, f, default_flow_style=False, sort_keys=False) 
+    except Exception as e:
+        return f"Failed to save docker-compose.yml: {str(e)}"
 
     return True
 
