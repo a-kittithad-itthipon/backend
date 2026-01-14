@@ -109,7 +109,12 @@ def validate_docker_compose(project_path, username, container_name):
     if len(services) == 0:
         return "No Service Found"
 
+    main_service_found = False
+
     for service_name, service in services.items():
+        if service_name == container_name:
+            main_service_found = True
+
         if "container_name" in service:
             return f"service '{service_name}' cannot define container_name"
 
@@ -154,6 +159,9 @@ def validate_docker_compose(project_path, username, container_name):
                     if n != "lan-net":
                         return f"service '{service_name}' must use lan-net only"
 
+    if not main_service_found:
+        return f"Main service '{container_name}' not found in docker-compose.yml. Please ensure the service name matches your main service."
+
     if "networks" not in compose:
         return "docker-compose.yml must define networks"
 
@@ -172,28 +180,44 @@ def validate_docker_compose(project_path, username, container_name):
 
     return True, value_container, services
 
-def run_docker_project(project_path, domain_name):
+def run_docker_project(project_path, domain_name, action):
+    down_log_content = (
+        f"------------[DOWN LOGS]------------ \n\n"
+        f"[CMD]:\n  - None - \n\n\n"
+        f"[STDOUT]:\n   - None -\n\n\n"
+        f"[STDERR]:\n   - None -\n"
+    )
     try:
-        cmd = ["docker", "compose", "-p", domain_name, "up", "-d", "--build"]
-        
-        result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=300)
+        if action == "UPDATE":
+            down_cmd = ["docker", "compose", "down", "--remove-orphans"]
+            down = subprocess.run(down_cmd, cwd=project_path, capture_output=True, text=True)
+            down_log_content = ( 
+                f"------------[DOWN LOGS]------------ \n\n"
+                f"[CMD]:\n  {down.args}\n\n\n"
+                f"[STDOUT]:\n   {down.stdout if down.stdout.strip() else '- None -'}\n\n\n"
+                f"[STDERR]:\n   {down.stderr if down.stderr.strip() else '- None -'}\n")
 
-        full_log = (
+        cmd = ["docker", "compose", "-p", domain_name, "up", "-d", "--build"]
+        result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=300)
+        up_log_content = (
+            f"------------[UP LOGS]------------ \n\n"
             f"[CMD]:\n  {result.args}\n\n\n"
             f"[STDOUT]:\n   {result.stdout if result.stdout.strip() else '- None -'}\n\n\n"
             f"[STDERR]:\n   {result.stderr if result.stderr.strip() else '- None -'}\n")
         
+
+        full_log_all = f"{down_log_content} \n\n {up_log_content}"
         if result.returncode == 0:
-            return True, full_log
+            return True, full_log_all
         else:
-            return False, full_log
+            return False, full_log_all
 
     except subprocess.TimeoutExpired:
         return False, "Deployment Timed Out during Build or Run process"
     except Exception as e:
         return False, str(e)
 
-def update_system_docker(username, value_container, container_name, port, domain, full_log, project_path, project_type, services, domain_name, is_run):
+def update_system_docker(username, value_container, container_name, port, domain, full_log, project_path, project_type, services, domain_name, is_run, action):
     conn = None
     try:
         conn = get_db_connection()
@@ -207,26 +231,31 @@ def update_system_docker(username, value_container, container_name, port, domain
         cursor.execute("UPDATE users SET container = %s WHERE username =  %s",(str(value_container), username))
 
         user_id = user_data['id']
+
+        if action == "UPDATE":
+            cursor.execute("DELETE FROM containers WHERE owner=%s AND project_path=%s",(username, project_path))
+
         for service_name in services.keys():
             if is_run:
                 status = "running"
-                action = "SUCCESS"
+                action_status = "SUCCESS"
             else:
                 status = "stopped"
-                action = "FAILED"
+                action_status = "FAILED"
 
             full_c_name = f"{domain_name}_{username}_{container_name}_{service_name}"
             path = f"{project_path}"
+            
 
             if service_name == container_name:
                 cursor.execute("INSERT INTO containers (user_id, owner, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, status, port, domain, path, project_type))
             else:
-                cursor.execute("INSERT INTO containers (user_id, owner, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, status, port, "", path, project_type))
+                cursor.execute("INSERT INTO containers (user_id, owner, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, status, None, "", path, project_type))
 
-            cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, 'DEPLOY', action,full_log))
+        cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, action, action_status, full_log))
 
         conn.commit()
-        return True, "System updated successfully"
+        return True, "System Updated Successfully"
 
     except Exception as e:
         if conn:
@@ -755,6 +784,7 @@ def upload():
             return jsonify({"error": ".zip File Only"}), 401
 
         if newfile == "set_new_file":
+            action = "DEPLOY"
             new_filename = f"{container_name}{ext}"
             full_path = os.path.join(user_path, new_filename)
             full_path_floder = os.path.join(user_path, container_name)
@@ -768,20 +798,21 @@ def upload():
                     shutil.rmtree(full_path_floder)
                     os.remove(full_path)
                     return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
-                is_run , logs = run_docker_project(full_path_floder,domain_name)
+                is_run , logs = run_docker_project(full_path_floder,domain_name, action)
                 if not is_run:
                     return jsonify({"error": logs}) , 400
-                result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, full_path_floder, project_type, services, domain_name, is_run)
+                result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, full_path_floder, project_type, services, domain_name, is_run, action)
                 os.remove(full_path)
                 if not result_stat:
                     return jsonify({"error": "Deploy Failed"}), 400
 
-                return jsonify({"message": f"Deploy Success Create File {container_name}"}), 200
+                return jsonify({"message": f"Deploy Success Create File {container_name} and {result_update}"}), 200
             except Exception as e:
                 print("Fetch Data Error:", e)
                 return jsonify({"error": f"Extract failed: {str(e)}"}), 500
 
         elif newfile == "":
+            action = "UPDATE"
             new_path_filename = f"{container_name}{ext}"
             new_full_path = os.path.join(user_path, new_path_filename)
             new_full_path_floder = os.path.join(user_path, container_name)
@@ -796,15 +827,15 @@ def upload():
                         shutil.rmtree(new_full_path_floder)
                         os.remove(new_full_path)
                         return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
-                    is_run , logs = run_docker_project(new_full_path_floder,domain_name)
+                    is_run , logs = run_docker_project(new_full_path_floder,domain_name, action)
                     if not is_run:
                         return jsonify({"error": logs}) , 400
-                    result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, new_full_path_floder, project_type, services, domain_name, is_run)
+                    result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, new_full_path_floder, project_type, services, domain_name, is_run, action)
                     os.remove(new_full_path)
                     if not result_stat:
                         return jsonify({"error": "Deploy Failed"}), 400
 
-                    return jsonify({"message": f"Deploy Success By New File {container_name}"}), 200
+                    return jsonify({"message": f"Deploy Success By New File {container_name} and {result_update}"}), 200
                 except Exception as e:
                     print("Fetch Data Error:", e)
                     return jsonify({"error": f"Failed: {str(e)}"}), 500
