@@ -10,10 +10,6 @@ Follow the steps below to set up the project locally:
 1. Create a Virtual Environtment
 
 ```bash
-py -3 -m venv .venv
-
-or
-
 python -m venv .venv
 ```
 
