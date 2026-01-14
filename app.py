@@ -178,7 +178,10 @@ def run_docker_project(project_path, domain_name):
         
         result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=300)
 
-        full_log = result.stdout + "\n" + result.stderr
+        full_log = (
+            f"[CMD]:\n  {result.args}\n\n\n"
+            f"[STDOUT]:\n   {result.stdout if result.stdout.strip() else '- None -'}\n\n\n"
+            f"[STDERR]:\n   {result.stderr if result.stderr.strip() else '- None -'}\n")
         
         if result.returncode == 0:
             return True, full_log
@@ -214,8 +217,13 @@ def update_system_docker(username, value_container, container_name, port, domain
 
             full_c_name = f"{domain_name}_{username}_{container_name}_{service_name}"
             path = f"{project_path}"
-            cursor.execute("INSERT INTO containers (user_id, owner, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, status, port, domain, path, project_type))
-            cursor.execute("INSERT INTO activity_logs (user_id, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s)", (user_id, full_c_name, 'DEPLOY', action,full_log))
+
+            if service_name == container_name:
+                cursor.execute("INSERT INTO containers (user_id, owner, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, status, port, domain, path, project_type))
+            else:
+                cursor.execute("INSERT INTO containers (user_id, owner, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, status, port, "", path, project_type))
+
+            cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, 'DEPLOY', action,full_log))
 
         conn.commit()
         return True, "System updated successfully"
@@ -328,20 +336,28 @@ def dashboard_data():
         cursor.execute("SELECT COUNT(*) as total FROM users")
         user_total = cursor.fetchone()
         user_total = user_total["total"]
-        upload_total = 0
         cursor.execute("SELECT * FROM users WHERE username = %s", (user_username,))
         user_data = cursor.fetchone()
         cursor.execute("SELECT COUNT(req_db) as total FROM users WHERE req_db = 1")
         req_total = cursor.fetchone()
+
+        action = "DEPLOY"
+        cursor.execute("SELECT COUNT(action) as total FROM activity_logs WHERE action = %s",(action,))
+        upload_total = cursor.fetchone()
+
+        cursor.execute("SELECT COUNT(action) as total FROM activity_logs WHERE action = %s AND username = %s",(action,user_username))
+        user_upload_total = cursor.fetchone()
+
         return (
             jsonify(
                 {
                     "username": user_username,
                     "user_total": user_total,
-                    "upload_total": upload_total,
+                    "upload_total": upload_total["total"],
                     "email": user_data["email"],
                     "database": user_data["db"],
                     "req_total": req_total["total"],
+                    "user_upload_total": user_upload_total["total"],
                 }
             ),
             200,
@@ -523,6 +539,85 @@ def users_table():
         if conn:
             conn.close()
 
+@app.route("/api/logs", methods=["GET"])
+@jwt_required()
+def logs():
+    conn = None
+    try:
+        data = get_jwt()
+        username = data["username"]
+        role = data["role"]
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if role == "admin":
+            cursor.execute("SELECT * FROM activity_logs ORDER BY created_at DESC")
+            logs_data = cursor.fetchall()
+            if not logs_data:
+                return jsonify({"error": "No Logs Data"}) , 401
+            return jsonify(logs_data) , 200
+        elif role == "user":
+            cursor.execute("SELECT * FROM activity_logs WHERE username = %s ORDER BY created_at DESC",(username,))
+            logs_data = cursor.fetchall()
+            if not logs_data:
+                return jsonify({"error": "No Logs Data"}) , 401
+            return jsonify(logs_data) , 200
+        else:
+            return jsonify({"error": "Fetch Logs Error"}) , 401
+    except Exception as e:
+        print("Fetch Data Error:", e)
+        return jsonify({"error": "Failed to fetch data"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route("/api/container_data", methods=["GET"])
+@jwt_required()
+def container_data():
+    conn = None
+    try:
+        data = get_jwt()
+        username = data["username"]
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM containers WHERE owner = %s",(username,))
+        containers_data = cursor.fetchall()
+
+        if not container_data:
+            return jsonify({"error": "No Containers Data"}) , 401
+        
+        return jsonify(containers_data) , 200
+
+    except Exception as e:
+        print("Fetch Data Error:", e)
+        return jsonify({"error": "Failed to fetch data"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route("/api/active_site", methods=["GET"])
+def active_site():
+    conn = None
+    try:
+        username = "admin"
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM containers WHERE owner != %s ORDER BY created_at DESC",(username,))
+        system_data = cursor.fetchall()
+
+        if not system_data:
+            return jsonify({"error": "No System Data"}) , 401
+        
+        return jsonify(system_data) , 200
+
+    except Exception as e:
+        print("Fetch Data Error:", e)
+        return jsonify({"error": "Failed to fetch data"}), 500
+    finally:
+        if conn:
+            conn.close()
 
 @app.route("/api/forgot", methods=["POST"])
 def forgot():
@@ -712,7 +807,7 @@ def upload():
                     return jsonify({"message": f"Deploy Success By New File {container_name}"}), 200
                 except Exception as e:
                     print("Fetch Data Error:", e)
-                    return jsonify({"error": f"Extract failed: {str(e)}"}), 500
+                    return jsonify({"error": f"Failed: {str(e)}"}), 500
             else:      
                 return jsonify({"error": f"Project '{container_name}' Not Found Cannot Update Plese Check Container Name"}), 400
         else:
