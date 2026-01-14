@@ -44,7 +44,7 @@ pip install -r requirements.txt
 Start the Flask server with:
 
 ```bash
-python run.py
+python app.py
 ```
 
 Once running, the app will typically be available at:
