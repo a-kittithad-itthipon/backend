@@ -424,47 +424,47 @@ def register():
             conn.close()
 
 
-@app.route("/api/login", methods=["POST"])
-def login():
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
-    conn = None
+    @app.route("/api/login", methods=["POST"])
+    def login():
+        data = request.json
+        username = data.get("username")
+        password = data.get("password")
+        conn = None
 
-    try:
-        if not username or not password:
-            return jsonify({"error": "missing data"}), 400
+        try:
+            if not username or not password:
+                return jsonify({"error": "missing data"}), 400
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
-        user = cursor.fetchone()
-        if not user:
-            return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
+            user = cursor.fetchone()
+            if not user:
+                return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
 
-        password_hashed = user["password"]
-        password_verify = bcrypt.check_password_hash(password_hashed, password)
-        if password_verify:
-            token = create_access_token(
-                identity=str(user["id"]),
-                additional_claims={"username": user["username"], "role": user["role"]},
-            )
+            password_hashed = user["password"]
+            password_verify = bcrypt.check_password_hash(password_hashed, password)
+            if password_verify:
+                token = create_access_token(
+                    identity=str(user["id"]),
+                    additional_claims={"username": user["username"], "role": user["role"]},
+                )
 
-            return (
-                jsonify(
-                    {"message": "Login Success", "token": token, "role": user["role"]}
-                ),
-                200,
-            )
-        else:
-            return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
+                return (
+                    jsonify(
+                        {"message": "Login Success", "token": token, "role": user["role"]}
+                    ),
+                    200,
+                )
+            else:
+                return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
 
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if conn:
-            conn.close()
+        except Exception as e:
+            print("Error:", e)
+            return jsonify({"error": str(e)}), 500
+        finally:
+            if conn:
+                conn.close()
 
 
 @app.route("/api/dashboard", methods=["GET"])
@@ -1072,6 +1072,8 @@ def del_stack():
 def upload():
     conn = None
     save_path = os.getenv("BASE_PATH")
+    path_to_clean_folder = None
+    path_to_clean_zip = None
     try:
         data_token = get_jwt()
         username = data_token["username"]
@@ -1104,6 +1106,9 @@ def upload():
             new_filename = f"{container_name}{ext}"
             full_path = os.path.join(user_path, new_filename)
             full_path_floder = os.path.join(user_path, container_name)
+            path_to_clean_zip = full_path
+            path_to_clean_folder = full_path_floder
+
             if os.path.exists(full_path) or os.path.exists(full_path_floder):
                 return jsonify({"error": f"Project '{container_name}' Already Exists Plese Change Container Name"}), 400 
             file.save(full_path)
@@ -1137,10 +1142,20 @@ def upload():
                     return jsonify({"error": "Deploy Failed"}), 400
 
                 os.remove(full_path)
+                path_to_clean_folder = None
+                path_to_clean_zip = None
+
                 return jsonify({"message": f"Deploy Success Create File {container_name} and {result_update}"}), 200
             except Exception as e:
                 print("Fetch Data Error:", e)
-                return jsonify({"error": f"Extract failed: {str(e)}"}), 500
+
+                if full_path_floder and os.path.exists(full_path_floder):
+                    shutil.rmtree(full_path_floder)
+
+                if full_path and os.path.exists(full_path):
+                    os.remove(full_path)
+                    
+                return jsonify({"error": f"Extract or Deploy failed: {str(e)}"}), 500
 
         elif newfile == "":
             action = "UPDATE"
@@ -1151,6 +1166,9 @@ def upload():
             new_path_filename = f"{container_name}{ext}"
             new_full_path = os.path.join(user_path, new_path_filename)
             new_full_path_floder = os.path.join(user_path, container_name)
+            path_to_clean_zip = new_full_path
+            path_to_clean_folder = new_full_path_floder
+
             if os.path.exists(new_full_path) or os.path.exists(new_full_path_floder):
                 file.save(new_full_path)    
                 try:
@@ -1190,17 +1208,43 @@ def upload():
                         return jsonify({"error": "Deploy Failed"}), 400
 
                     os.remove(new_full_path)
+                    path_to_clean_folder = None
+                    path_to_clean_zip = None
+
                     return jsonify({"message": f"Deploy Success By New File {container_name} , {result_update} and {msg_npm}"}), 200
                 except Exception as e:
                     print("Fetch Data Error:", e)
-                    return jsonify({"error": f"Failed: {str(e)}"}), 500
+                
+                    if new_full_path_floder and os.path.exists(new_full_path_floder):
+                        shutil.rmtree(new_full_path_floder)
+                
+                    if new_full_path and os.path.exists(new_full_path):
+                        os.remove(new_full_path)
+
+                    return jsonify({"error": f"Extract or Deploy failed: {str(e)}"}), 500
             else:      
                 return jsonify({"error": f"Project '{container_name}' Not Found Cannot Update Plese Check Container Name"}), 400
         else:
             return jsonify({"error": f"Error Can't Save"}), 401
 
     except Exception as e:
-        print("Fetch Data Error:", e)
+        print(f"Deployment Error: {e}")
+        
+        if conn: 
+            conn.rollback()
+
+        if path_to_clean_folder and os.path.exists(path_to_clean_folder):
+            try:
+                shutil.rmtree(path_to_clean_folder)
+            except Exception as ex:
+                print(f"Failed to cleanup folder: {ex}")
+
+        if path_to_clean_zip and os.path.exists(path_to_clean_zip):
+            try:
+                os.remove(path_to_clean_zip)
+            except Exception as ex:
+                print(f"Failed to cleanup zip: {ex}")
+                
         return jsonify({"error": "Failed to fetch data"}), 500
     finally:
         if conn:
