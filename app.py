@@ -653,15 +653,18 @@ def deluser():
         for container in container_user_data:
             c_name = container['container_name']
             project_path = container['project_path']
+            if container['domain']:
+                domain_name = container['domain'].split(".addp.site")[0]
 
             msg_npm = "- None -"
             if container['npm_id']:
                 status, msg_npm = nginx_delete_proxy(container['npm_id'])
             
 
-            if project_path and os.path.exists(project_path) and project_path not in processed_paths:
+            if project_path and os.path.exists(project_path) and project_path not in processed_paths and domain_name:
                 try:
-                    result = subprocess.run(["docker", "compose", "down", "-v", "--remove-orphans"], cwd=container['project_path'], capture_output=True, text=True, timeout=120)
+                    cmd_del = ["docker", "compose", "-p", domain_name, "down", "--remove-orphans"]
+                    result = subprocess.run(cmd_del, cwd=project_path, capture_output=True, text=True, timeout=300)
 
                     all_docker_logs.append(
                         f"------------[DELETE {n+1}]------------ \n\n"
@@ -986,6 +989,7 @@ def del_stack():
     container_list = []
     npm_logs = []
     result = None
+    domain_name = ""
     try:
         data_token = get_jwt()
         username = data_token["username"]
@@ -1007,7 +1011,6 @@ def del_stack():
 
         
         msg_npm = "- None -"
-        result = None
 
         for container in container_user_data:
             container_list.append(container["container_name"])
@@ -1017,18 +1020,20 @@ def del_stack():
 
             npm_logs.append(f"{container['domain']}: {msg_npm}")
 
-        if container['project_path'] and os.path.exists(container['project_path']):
+            if container['domain']:
+                domain_name = container['domain'].split(".addp.site")[0]
+
+        if project_path and os.path.exists(project_path):
             try:
-                result = subprocess.run(["docker", "compose", "down", "-v", "--remove-orphans"], cwd=container['project_path'], capture_output=True, text=True, timeout=300)
+                cmd_del = ["docker", "compose", "-p", domain_name, "down", "--remove-orphans"]
+                result = subprocess.run(cmd_del, cwd=project_path, capture_output=True, text=True, timeout=300)
             except Exception as e:
                 print(f"Docker/File Cleanup Error: {e}")
                 return jsonify({"error": str(e)}) , 500
 
-        shutil.rmtree(project_path)
+                
         cursor.execute("DELETE FROM containers WHERE project_path = %s AND owner = %s", (project_path, username))
-
         full_c_name = f"STACK : {os.path.basename(project_path)}"
-
         log_str_npm = "\n".join(npm_logs)
         log_str_container = "\n".join(container_list)
         full_log = (
@@ -1043,6 +1048,14 @@ def del_stack():
         cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, "DELETE", "SUCCESS", full_log))
                 
         conn.commit()
+
+        if project_path and os.path.exists(project_path):
+            if result and result.returncode == 0:
+                try:
+                    shutil.rmtree(project_path)
+                except Exception as e:
+                    print(f"Warning: Failed to delete folder {project_path}: {e}")
+
         return jsonify({"message": "Stack deleted successfully"}), 200
     
     except Exception as e:
