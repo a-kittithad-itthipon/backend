@@ -424,47 +424,47 @@ def register():
             conn.close()
 
 
-    @app.route("/api/login", methods=["POST"])
-    def login():
-        data = request.json
-        username = data.get("username")
-        password = data.get("password")
-        conn = None
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+    conn = None
 
-        try:
-            if not username or not password:
-                return jsonify({"error": "missing data"}), 400
+    try:
+        if not username or not password:
+            return jsonify({"error": "missing data"}), 400
 
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
-            user = cursor.fetchone()
-            if not user:
-                return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
+        user = cursor.fetchone()
+        if not user:
+            return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
 
-            password_hashed = user["password"]
-            password_verify = bcrypt.check_password_hash(password_hashed, password)
-            if password_verify:
-                token = create_access_token(
-                    identity=str(user["id"]),
-                    additional_claims={"username": user["username"], "role": user["role"]},
-                )
+        password_hashed = user["password"]
+        password_verify = bcrypt.check_password_hash(password_hashed, password)
+        if password_verify:
+            token = create_access_token(
+                identity=str(user["id"]),
+                additional_claims={"username": user["username"], "role": user["role"]},
+            )
 
-                return (
-                    jsonify(
-                        {"message": "Login Success", "token": token, "role": user["role"]}
-                    ),
-                    200,
-                )
-            else:
-                return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
+            return (
+                jsonify(
+                    {"message": "Login Success", "token": token, "role": user["role"]}
+                ),
+                200,
+            )
+        else:
+            return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
 
-        except Exception as e:
-            print("Error:", e)
-            return jsonify({"error": str(e)}), 500
-        finally:
-            if conn:
-                conn.close()
+    except Exception as e:
+        print("Error:", e)
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.route("/api/dashboard", methods=["GET"])
