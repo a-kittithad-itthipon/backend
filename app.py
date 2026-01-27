@@ -259,6 +259,13 @@ def validate_docker_compose(project_path, username, container_name):
         else:
             service["labels"] = {"user": username,"container": container_name}
 
+        if "restart" not in service:
+            service["restart"] = "unless-stopped"
+        else:
+            allowed_restarts = ["always", "unless-stopped"]
+            if service["restart"] not in allowed_restarts:
+                return f"service '{service_name}' has invalid restart policy. Allowed values are: {', '.join(allowed_restarts)}" , None , None
+
         if "networks" in service:
             nets = service["networks"]
 
