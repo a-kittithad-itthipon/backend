@@ -259,6 +259,13 @@ def validate_docker_compose(project_path, username, container_name):
         else:
             service["labels"] = {"user": username,"container": container_name}
 
+        if "restart" not in service:
+            service["restart"] = "unless-stopped"
+        else:
+            allowed_restarts = ["always", "unless-stopped"]
+            if service["restart"] not in allowed_restarts:
+                return f"service '{service_name}' has invalid restart policy. Allowed values are: {', '.join(allowed_restarts)}" , None , None
+
         if "networks" in service:
             nets = service["networks"]
 
@@ -356,7 +363,7 @@ def update_system_docker(username, value_container, container_name, port, domain
                 status = "stopped"
                 action_status = "FAILED"
 
-            full_c_name = f"{domain_name}_{username}_{container_name}_{service_name}"
+            full_c_name = f"{username}_{container_name}_{service_name}"
             path = f"{project_path}"
             
 
@@ -1088,7 +1095,10 @@ def upload():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM containers WHERE domain = %s",(domain,))
         domain_exists = cursor.fetchone()
-
+        
+        if not domain_exists:
+            domain_exists = None
+        
         if newfile == "set_new_file" and domain_exists is not None:
             return jsonify({"error": "Domain Already Exists Please Use Other Domain"}), 400
 
@@ -1128,8 +1138,8 @@ def upload():
                     os.remove(full_path)
                     return jsonify({"error": logs}) , 400
 
-                
-                status , msg_npm = nginx_add_proxy(domain, container_name, port, "http")
+                full_container_name = services[container_name]["container_name"]
+                status , msg_npm = nginx_add_proxy(domain, full_container_name, port, "http")
                 if not status:
                     shutil.rmtree(full_path_floder)
                     os.remove(full_path)
@@ -1159,8 +1169,11 @@ def upload():
 
         elif newfile == "":
             action = "UPDATE"
-
-            if not domain_exists["domain"] != domain:
+            
+            if domain_exists is None:
+                return jsonify({"error": f"Domain '{domain}' not found in system"}), 404
+                
+            if domain_exists["domain"] != domain:
                 return jsonify({"error": f"Your Input Domain is {domain} Not Match Your System Domain {domain_exists["domain"]}"}) , 400
 
             new_path_filename = f"{container_name}{ext}"
@@ -1168,6 +1181,10 @@ def upload():
             new_full_path_floder = os.path.join(user_path, container_name)
             path_to_clean_zip = new_full_path
             path_to_clean_folder = new_full_path_floder
+            
+            compose = os.path.join(new_full_path_floder, "docker-compose.yml")
+            if not os.path.exists(compose):
+                return jsonify({"error": f"Project '{container_name}' Not Found Cannot Update Plese Check Container Name"}), 400
 
             if os.path.exists(new_full_path) or os.path.exists(new_full_path_floder):
                 file.save(new_full_path)    
@@ -1201,7 +1218,7 @@ def upload():
                         os.remove(new_full_path)
                         return jsonify({"error": msg_npm}), 400
 
-                    result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, new_full_path_floder, project_type, services, domain_name, is_run, action, msg_npm)
+                    result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, new_full_path_floder, project_type, services, domain_name, is_run, action, domain_exists["npm_id"])
                     if not result_stat:
                         shutil.rmtree(new_full_path_floder)
                         os.remove(new_full_path)
