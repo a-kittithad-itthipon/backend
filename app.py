@@ -662,7 +662,8 @@ def deluser():
             project_path = container['project_path']
             container_owner = container['owner']
 
-            docker_project_name = f"{container_owner}_{c_name}"
+            folder_name = os.path.basename(project_path)
+            docker_project_name = f"{container_owner}_{folder_name}"
 
             msg_npm = "- None -"
             if container['npm_id']:
