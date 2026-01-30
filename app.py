@@ -300,7 +300,7 @@ def validate_docker_compose(project_path, username, container_name):
 
     return True, value_container, services
 
-def run_docker_project(project_path, domain_name, action):
+def run_docker_project(project_path, docker_project_name, action):
     down_log_content = (
         f"------------[DOWN LOGS]------------ \n\n"
         f"[CMD]:\n  - None - \n\n\n"
@@ -309,7 +309,7 @@ def run_docker_project(project_path, domain_name, action):
     )
     try:
         if action == "UPDATE":
-            down_cmd = ["docker", "compose", "-p", domain_name, "down", "--remove-orphans"]
+            down_cmd = ["docker", "compose", "-p", docker_project_name, "down", "--remove-orphans"]
             down = subprocess.run(down_cmd, cwd=project_path, capture_output=True, text=True, timeout=300)
             down_log_content = ( 
                 f"------------[DOWN LOGS]------------ \n\n"
@@ -317,7 +317,7 @@ def run_docker_project(project_path, domain_name, action):
                 f"[STDOUT]:\n   {down.stdout if down.stdout.strip() else '- None -'}\n\n\n"
                 f"[STDERR]:\n   {down.stderr if down.stderr.strip() else '- None -'}\n")
 
-        cmd = ["docker", "compose", "-p", domain_name, "up", "-d", "--build"]
+        cmd = ["docker", "compose", "-p", docker_project_name, "up", "-d", "--build"]
         result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=300)
         up_log_content = (
             f"------------[UP LOGS]------------ \n\n"
@@ -660,17 +660,18 @@ def deluser():
         for container in container_user_data:
             c_name = container['container_name']
             project_path = container['project_path']
-            if container['domain']:
-                domain_name = container['domain'].split(".addp.site")[0]
+            container_owner = container['owner']
+
+            docker_project_name = f"{container_owner}_{c_name}"
 
             msg_npm = "- None -"
             if container['npm_id']:
                 status, msg_npm = nginx_delete_proxy(container['npm_id'])
             
 
-            if project_path and os.path.exists(project_path) and project_path not in processed_paths and domain_name:
+            if project_path and os.path.exists(project_path) and project_path not in processed_paths:
                 try:
-                    cmd_del = ["docker", "compose", "-p", domain_name, "down", "--remove-orphans"]
+                    cmd_del = ["docker", "compose", "-p", docker_project_name, "down", "--remove-orphans"]
                     result = subprocess.run(cmd_del, cwd=project_path, capture_output=True, text=True, timeout=300)
 
                     all_docker_logs.append(
@@ -996,7 +997,6 @@ def del_stack():
     container_list = []
     npm_logs = []
     result = None
-    domain_name = ""
     try:
         data_token = get_jwt()
         username = data_token["username"]
@@ -1027,12 +1027,13 @@ def del_stack():
 
             npm_logs.append(f"{container['domain']}: {msg_npm}")
 
-            if container['domain']:
-                domain_name = container['domain'].split(".addp.site")[0]
+
+        folder_name = os.path.basename(project_path) 
+        docker_project_name = f"{username}_{folder_name}"
 
         if project_path and os.path.exists(project_path):
             try:
-                cmd_del = ["docker", "compose", "-p", domain_name, "down", "--remove-orphans"]
+                cmd_del = ["docker", "compose", "-p", docker_project_name, "down", "--remove-orphans"]
                 result = subprocess.run(cmd_del, cwd=project_path, capture_output=True, text=True, timeout=300)
             except Exception as e:
                 print(f"Docker/File Cleanup Error: {e}")
@@ -1131,8 +1132,9 @@ def upload():
                     os.remove(full_path)
                     return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
 
-
-                is_run , logs = run_docker_project(full_path_floder,domain_name, action)
+                
+                docker_project_name = f"{username}_{container_name}"
+                is_run , logs = run_docker_project(full_path_floder, docker_project_name, action)
                 if not is_run:
                     shutil.rmtree(full_path_floder)
                     os.remove(full_path)
@@ -1200,11 +1202,11 @@ def upload():
                         os.remove(new_full_path)
                         return jsonify({"error": f"docker-compose.yml Validation Failed: {validate_result}"}), 400
 
-
-                    is_run , logs = run_docker_project(new_full_path_floder,domain_name, action)
+                    docker_project_name = f"{username}_{container_name}"
+                    is_run , logs = run_docker_project(new_full_path_floder,docker_project_name, action)
                     if not is_run:
                         try:
-                            subprocess.run(["docker", "compose", "-p", domain_name, "down", "--remove-orphans"], cwd=new_full_path_floder, capture_output=True, timeout=30)
+                            subprocess.run(["docker", "compose", "-p", docker_project_name, "down", "--remove-orphans"], cwd=new_full_path_floder, capture_output=True, timeout=30)
                         except:
                             pass
 
