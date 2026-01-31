@@ -194,6 +194,7 @@ def validate_docker_compose(project_path, username, container_name):
     cursor.execute("SELECT max_containers FROM users WHERE username = %s", (username,))
     user_data = cursor.fetchone()
     max_containers = user_data["max_containers"]
+    current_usage = user_data["container"]
     for fname in ["docker-compose.yml", "docker-compose.yaml"]:
         path = os.path.join(project_path, fname)
         if os.path.exists(path):
@@ -215,9 +216,19 @@ def validate_docker_compose(project_path, username, container_name):
     services = compose["services"]
 
     value_container = len(services)
+    cursor.execute("SELECT COUNT(*) as count FROM containers WHERE project_path = %s AND owner = %s", (project_path, username))
+    container_data = cursor.fetchone()
+    old_stack_count = 0
 
-    if int(value_container) > (int(max_containers)):
-        return f"Exceeded Maximum Container Limit of {max_containers}" , None , None
+    if not container_data:
+        old_stack_count = 0
+    else:
+        old_stack_count = container_data['count']
+
+    predicted_usage = (current_usage - old_stack_count) + value_container
+
+    if int(predicted_usage) > (int(max_containers)):
+        return f"Quota Exceeded! You have {current_usage}. This stack is {value_container}. Total would be {predicted_usage} (Max: {max_containers})" , None , None
 
     if len(services) == 0:
         return "No Service Found"
@@ -348,12 +359,32 @@ def update_system_docker(username, value_container, container_name, port, domain
         if not user_data:
             return False, f"User '{username}' not found"
 
-        cursor.execute("UPDATE users SET container = %s WHERE username =  %s",(str(value_container), username))
+        container_use = user_data['container']
+
+        count_container = container_use
+
 
         user_id = user_data['id']
 
         if action == "UPDATE":
+            cursor.execute("SELECT COUNT(*) as count FROM containers WHERE owner=%s AND project_path=%s", (username, project_path))
+            result = cursor.fetchone()
+            old_stack_count = 0
+            if not result:
+                old_stack_count = 0
+            else:
+                old_stack_count = result['count']
+                
+            count_container = (container_use - old_stack_count) + int(value_container)
+
             cursor.execute("DELETE FROM containers WHERE owner=%s AND project_path=%s",(username, project_path))
+        else:
+            count_container = container_use + int(value_container)
+
+        if count_container < 0: 
+            count_container = 0
+
+        cursor.execute("UPDATE users SET container = %s WHERE username =  %s",(str(count_container), username))
 
         for service_name in services.keys():
             if is_run:
@@ -1005,9 +1036,10 @@ def del_stack():
         project_path = data["stack"]
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
         user_data = cursor.fetchone()
         user_id = user_data['id']
+        container_value = user_data['container']
 
         if not user_data:
             return jsonify({"error": "Users Data Not Found"}), 400
@@ -1053,6 +1085,13 @@ def del_stack():
             f"[NPM]:\n   {log_str_npm}\n\n\n"
             f"[CONTAINER NAME]:\n  {log_str_container}\n"
             )
+        
+        deleted_count = len(container_list)
+        container_count = container_value - deleted_count
+        if container_count < 0:
+            container_count = 0
+
+        cursor.execute("UPDATE users SET container = %s WHERE username = %s", (container_count, username))
 
         cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, "DELETE", "SUCCESS", full_log))
                 
