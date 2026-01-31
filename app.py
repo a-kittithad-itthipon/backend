@@ -399,9 +399,9 @@ def update_system_docker(username, value_container, container_name, port, domain
             
 
             if service_name == container_name:
-                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, int(npm_id), full_c_name, status, port, domain, path, project_type))
+                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type, publish) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, int(npm_id), full_c_name, status, port, domain, path, project_type, True))
             else:
-                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, None, full_c_name, status, None, "", path, project_type))
+                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type, publish) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, None, full_c_name, status, None, "", path, project_type, False))
 
         cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, action, action_status, full_log))
 
@@ -839,7 +839,7 @@ def active_site():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM containers WHERE owner != %s ORDER BY created_at DESC",(username,))
+        cursor.execute("SELECT * FROM containers WHERE owner != %s AND publish = 1 ORDER BY created_at DESC",(username,))
         system_data = cursor.fetchall()
 
         if not system_data:
@@ -977,10 +977,11 @@ def port_update():
         port = data["port"]
         container_name = data["containerName"]
         protocol = data["type"]
+        pub = data["pub"]
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM containers WHERE container_name = %s", (containerName,))
+        cursor.execute("SELECT * FROM containers WHERE container_name = %s", (container_name,))
         user_data = cursor.fetchone()
         domain = user_data["domain"]
 
@@ -999,7 +1000,7 @@ def port_update():
                 status , msg_npm = nginx_update_proxy(user_data["npm_id"], domain, user_data["container_name"], port, protocol)
                 
                 if status:
-                    cursor.execute("UPDATE containers SET port_internal = %s, forward_scheme = %s WHERE container_name = %s", (port, protocol, container_name))
+                    cursor.execute("UPDATE containers SET port_internal = %s, forward_scheme = %s, 	publish = %s WHERE container_name = %s", (port, protocol, pub, container_name))
                     conn.commit()
                     return jsonify({"message": "Update Port and Proxy Host Success"}), 201
                 else:
