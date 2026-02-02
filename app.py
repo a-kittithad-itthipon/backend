@@ -19,6 +19,7 @@ import shutil
 import yaml
 import subprocess
 import requests
+from dbutils.pooled_db import PooledDB
 
 load_dotenv()
 
@@ -40,14 +41,29 @@ jwt = JWTManager(app)
 mail = Mail(app)
 
 
+POOL = PooledDB(
+    creator=pymysql,
+    maxconnections=20,  
+    mincached=5,
+    blocking=True,
+    host=os.getenv("DB_HOST"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASS"),
+    database=os.getenv("DB_NAME"),
+    cursorclass=pymysql.cursors.DictCursor
+)
+
 def get_db_connection():
-    return pymysql.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        database=os.getenv("DB_NAME"),
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    return POOL.connection()
+
+# def get_db_connection():
+#     return pymysql.connect(
+#         host=os.getenv("DB_HOST"),
+#         user=os.getenv("DB_USER"),
+#         password=os.getenv("DB_PASS"),
+#         database=os.getenv("DB_NAME"),
+#         cursorclass=pymysql.cursors.DictCursor,
+#     )
 
 def get_npm_token():
     url = f"{os.getenv('NPM_URL')}/api/tokens"
