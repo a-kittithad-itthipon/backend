@@ -191,10 +191,10 @@ def validate_docker_compose(project_path, username, container_name):
     compose_file = None
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT max_containers FROM users WHERE username = %s", (username,))
+    cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
     user_data = cursor.fetchone()
     max_containers = user_data["max_containers"]
-    current_usage = user_data["container"]
+    current_usage = int(user_data["container"])
     for fname in ["docker-compose.yml", "docker-compose.yaml"]:
         path = os.path.join(project_path, fname)
         if os.path.exists(path):
@@ -227,7 +227,7 @@ def validate_docker_compose(project_path, username, container_name):
 
     predicted_usage = (current_usage - old_stack_count) + value_container
 
-    if int(predicted_usage) > (int(max_containers)):
+    if int(predicted_usage) > int(max_containers):
         return f"Quota Exceeded! You have {current_usage}. This stack is {value_container}. Total would be {predicted_usage} (Max: {max_containers})" , None , None
 
     if len(services) == 0:
@@ -359,10 +359,9 @@ def update_system_docker(username, value_container, container_name, port, domain
         if not user_data:
             return False, f"User '{username}' not found"
 
-        container_use = user_data['container']
+        container_use = int(user_data['container'])
 
         count_container = container_use
-
 
         user_id = user_data['id']
 
@@ -399,9 +398,15 @@ def update_system_docker(username, value_container, container_name, port, domain
             
 
             if service_name == container_name:
-                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type, publish) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, int(npm_id), full_c_name, status, port, domain, path, project_type, True))
+                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type, publish) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, int(npm_id), full_c_name, status, port, domain, path, project_type, True))
             else:
-                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type, publish) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, None, full_c_name, status, None, "", path, project_type, False))
+                cursor.execute("INSERT INTO containers (user_id, owner, npm_id, container_name, status, port_internal, domain, project_path, type, publish) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (user_id, username, None, full_c_name, status, None, "", path, project_type, True))
+        
+        LIMIT_SIZE = 60000
+        if len(full_log) > LIMIT_SIZE:
+            head = full_log[:20000]
+            tail = full_log[-40000:]
+            full_log = f"{head}\n\n REMOVE LOGS: {len(full_log) - LIMIT_SIZE} CHARACTERS \n\n{tail}"
 
         cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, action, action_status, full_log))
 
@@ -680,7 +685,7 @@ def deluser():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
         user_data = cursor.fetchone()
-        all_docker_logs = [f"[DELETE]:\n {username}:{user_data["id"]} \n\n\n"]
+        all_docker_logs = [f"[DELETE]:\n USERNAME: {username} \n ID: {user_data["id"]} \n\n\n"]
         db_name = f"db_{username}"
 
         cursor.execute("SELECT * FROM containers WHERE owner = %s", (username,))
@@ -984,10 +989,12 @@ def port_update():
         cursor.execute("SELECT * FROM containers WHERE container_name = %s", (container_name,))
         user_data = cursor.fetchone()
         domain = user_data["domain"]
+        port_internal = user_data["port_internal"]
+        forward_scheme = user_data["forward_scheme"]
 
         if not domain:
             try:
-                cursor.execute("UPDATE containers SET port_internal = %s WHERE container_name = %s",(port, container_name))
+                cursor.execute("UPDATE containers SET port_internal = %s WHERE container_name = %s AND username = %s", (port, container_name, username))
                 conn.commit()
                 return jsonify({"message": "Update Port Success"}) , 201
             except Exception as e:
@@ -996,21 +1003,32 @@ def port_update():
                 print("Fetch Data Error:", e)
                 return jsonify({"error": "Failed to fetch data"}), 500
         elif domain:
-            try:
-                status , msg_npm = nginx_update_proxy(user_data["npm_id"], domain, user_data["container_name"], port, protocol)
-                
-                if status:
-                    cursor.execute("UPDATE containers SET port_internal = %s, forward_scheme = %s, 	publish = %s WHERE container_name = %s", (port, protocol, pub, container_name))
-                    conn.commit()
-                    return jsonify({"message": "Update Port and Proxy Host Success"}), 201
-                else:
-                    return jsonify({"error": f"NPM Update Failed: {msg_npm}"}), 500
 
-            except Exception as e:
-                if conn:
-                    conn.rollback()
-                print("Internal Error:", e)
-                return jsonify({"error": "Failed to update proxy or database"}), 500
+            if port_internal == port and 	forward_scheme == protocol:
+                try:
+                    cursor.execute("UPDATE containers SET publish = %s WHERE container_name = %s", (pub, container_name))
+                    conn.commit()
+                    return jsonify({"message": "Update Publish Status Success"}), 201
+                except Exception as e:
+                    return jsonify({"error": "Failed to Update Publish Status"}), 500
+            else:
+                try:
+                    status , msg_npm = nginx_update_proxy(user_data["npm_id"], domain, user_data["container_name"], port, protocol)
+                    
+                    if status:
+                        cursor.execute("UPDATE containers SET port_internal = %s, forward_scheme = %s, 	publish = %s WHERE container_name = %s", (port, protocol, pub, container_name))
+                        conn.commit()
+                        return jsonify({"message": "Update Port Proxy Host and Publish Status Success"}), 201
+                    else:
+                        return jsonify({"error": f"NPM Update Failed: {msg_npm}"}), 500
+
+
+                except Exception as e:
+                    if conn:
+                        conn.rollback()
+                    print("Internal Error:", e)
+                    return jsonify({"error": "Failed to update proxy or database"}), 500
+
         else:
             return jsonify({"error": "Data Error"}) , 400
 
@@ -1037,10 +1055,10 @@ def del_stack():
         project_path = data["stack"]
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
         user_data = cursor.fetchone()
         user_id = user_data['id']
-        container_value = user_data['container']
+        container_value = int(user_data['container'])
 
         if not user_data:
             return jsonify({"error": "Users Data Not Found"}), 400
@@ -1086,7 +1104,7 @@ def del_stack():
             f"[NPM]:\n   {log_str_npm}\n\n\n"
             f"[CONTAINER NAME]:\n  {log_str_container}\n"
             )
-        
+
         deleted_count = len(container_list)
         container_count = container_value - deleted_count
         if container_count < 0:
@@ -1190,9 +1208,13 @@ def upload():
 
                 result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, full_path_floder, project_type, services, domain_name, is_run, action, msg_npm)
                 if not result_stat:
+                    try:
+                        subprocess.run(["docker", "compose", "-p", docker_project_name, "down"], cwd=full_path_floder, timeout=60)
+                    except:
+                        pass
                     shutil.rmtree(full_path_floder)
                     os.remove(full_path)
-                    return jsonify({"error": "Deploy Failed"}), 400
+                    return jsonify({"error": f"DB Save Failed: {result_update}"}), 400
 
                 os.remove(full_path)
                 path_to_clean_folder = None
@@ -1217,7 +1239,7 @@ def upload():
                 return jsonify({"error": f"Domain '{domain}' not found in system"}), 404
                 
             if domain_exists["domain"] != domain:
-                return jsonify({"error": f"Your Input Domain is {domain} Not Match Your System Domain {domain_exists["domain"]}"}) , 400
+                return jsonify({"error": f"Your Input Domain is {domain} Not Match Your System Domain {domain_exists["domain"]} "}) , 400
 
             new_path_filename = f"{container_name}{ext}"
             new_full_path = os.path.join(user_path, new_path_filename)
@@ -1263,9 +1285,13 @@ def upload():
 
                     result_stat, result_update =  update_system_docker(username, value_container, container_name, port, domain, logs, new_full_path_floder, project_type, services, domain_name, is_run, action, domain_exists["npm_id"])
                     if not result_stat:
+                        try:
+                            subprocess.run(["docker", "compose", "-p", docker_project_name, "down"], cwd=new_full_path_floder, timeout=60)
+                        except:
+                            pass
                         shutil.rmtree(new_full_path_floder)
                         os.remove(new_full_path)
-                        return jsonify({"error": "Deploy Failed"}), 400
+                        return jsonify({"error": f"DB Save Failed: {result_update}"}), 400
 
                     os.remove(new_full_path)
                     path_to_clean_folder = None
