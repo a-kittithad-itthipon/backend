@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -110,6 +110,164 @@
 
         <div class="footer">
           © 2025 ADOCS
+        </div>
+      </div>
+    </div>
+  </body>
+</html> -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Docker OTP Verification</title>
+
+    <style>
+      /* Reset & Base */
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #061325; /* Abyssal Black-Blue */
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .wrapper {
+        width: 100%;
+        padding: 40px 0;
+        background-color: #061325;
+      }
+
+      .container {
+        max-width: 480px;
+        margin: 0 auto;
+        background-color: #0f2942; /* Deep Sea Blue */
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+        border: 1px solid #1e3a5f;
+      }
+
+      /* Header Section */
+      .header {
+        background: linear-gradient(135deg, #091a2f 0%, #004a7c 100%);
+        padding: 30px 20px;
+        text-align: center;
+        border-bottom: 3px solid #0db7ed; /* Docker Cyan */
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+      }
+
+      .logo-icon {
+        font-size: 40px;
+        margin-bottom: 10px;
+        display: block;
+      }
+
+      /* Content Section */
+      .content {
+        padding: 30px;
+        color: #dbeafe; /* Light Blue-White text */
+        text-align: center;
+      }
+
+      .content p {
+        font-size: 15px;
+        line-height: 1.6;
+        margin: 0 0 20px;
+        color: #b8cbe8;
+      }
+
+      .username {
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      /* OTP Box */
+      .otp-box {
+        margin: 30px 0;
+        padding: 20px;
+        text-align: center;
+        border-radius: 12px;
+        background-color: #0a1929; /* Darker contrast */
+        border: 1px dashed #38bdf8; /* Cyan dashed border */
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.1); /* Subtle glow */
+      }
+
+      .otp {
+        font-size: 36px;
+        font-family: 'Courier New', Courier, monospace; /* Monospace for code feel */
+        font-weight: bold;
+        letter-spacing: 8px;
+        color: #38bdf8; /* Cyan Text */
+        text-shadow: 0 0 5px rgba(56, 189, 248, 0.4);
+      }
+
+      .note {
+        font-size: 13px;
+        color: #64748b;
+        margin-top: 25px;
+        border-top: 1px solid #1e3a5f;
+        padding-top: 15px;
+      }
+
+      .note strong {
+        color: #94a3b8;
+      }
+
+      /* Footer */
+      .footer {
+        background-color: #091a2f;
+        text-align: center;
+        padding: 20px;
+        font-size: 12px;
+        color: #475569;
+        border-top: 1px solid #1e3a5f;
+      }
+      
+      .footer a {
+        color: #38bdf8;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrapper">
+      <div class="container">
+        <div class="header">
+          <div class="logo-icon">🐳</div>
+          <h1>Docker Verification</h1>
+        </div>
+
+        <div class="content">
+          <p>Hello <span class="username">{{ username }}</span>,</p>
+
+          <p>
+            A secure sign-in attempt was detected from your container. 
+            Please use the code below to authorize access.
+          </p>
+
+          <div class="otp-box">
+            <div class="otp">{{ otp }}</div>
+          </div>
+
+          <p class="note">
+            This code will expire in <strong>5 minutes</strong>.<br />
+            If you are not trying to deploy or sign in, please ignore this message.
+          </p>
+        </div>
+
+        <div class="footer">
+          &copy; 2025 ADOCS Container Services<br>
+          <span style="font-size: 11px; opacity: 0.7;">Secure Deep Sea Deployment</span>
         </div>
       </div>
     </div>

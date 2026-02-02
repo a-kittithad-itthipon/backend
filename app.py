@@ -501,26 +501,17 @@ def login():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM users WHERE email=%s", (username,))
-        email = cursor.fetchone()
+        cursor.execute("SELECT * FROM users WHERE email=%s OR username=%s", (username,username))
+        user_data = cursor.fetchone()
 
-        cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
-        user = cursor.fetchone()
+        if not user_data:
+            return jsonify({"error": "Invalid Username Or Email Or Password !"}), 401
 
-        if not email and not user:
-            return jsonify({"error": "Invalid Email Or Username Or Password !"})
-
-        if email:
-            username_add_token = email["username"]
-            role = email["role"]
-            password_hashed = email["password"]
-            user_id = email["id"]
-            
-        if user:
-            username_add_token = user["username"]
-            role = user["role"]
-            password_hashed = user["password"]
-            user_id = user["id"]
+        if user_data:
+            username_add_token = user_data["username"]
+            role = user_data["role"]
+            password_hashed = user_data["password"]
+            user_id = user_data["id"]
 
         password_verify = bcrypt.check_password_hash(password_hashed, password)
         if password_verify:
@@ -904,12 +895,13 @@ def forgot():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, username))
         user_data = cursor.fetchone()
         if not user_data:
-            return jsonify({"error": "Username Not Found"}), 401
+            return jsonify({"error": "Username Or Email Not Found"}), 401
 
         email = user_data["email"]
+        username_send = user_data["username"]
         otp = f"{random.randint(0,9)}{random.randint(0,9)}{random.randint(0,9)}{random.randint(0,9)}{random.randint(0,9)}{random.randint(0,9)}"
         token = create_access_token(
             identity=user_data["username"],
@@ -924,7 +916,7 @@ def forgot():
             subject="Adocs",
             recipients=[f"{email}"],
         )
-        mail_otp.html = render_template("/mail.html", otp=otp, username=username)
+        mail_otp.html = render_template("/mail.html", otp=otp, username=username_send)
         
         mail.send(mail_otp)
         return jsonify({"message": "Get OTP on Your Mail", "token": token}), 200
