@@ -489,6 +489,10 @@ def login():
     username = data.get("username")
     password = data.get("password")
     conn = None
+    username_add_token = None
+    role = None
+    password_hashed = None
+    user_id = None
 
     try:
         if not username or not password:
@@ -496,22 +500,38 @@ def login():
 
         conn = get_db_connection()
         cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM users WHERE email=%s", (username,))
+        email = cursor.fetchone()
+
         cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
         user = cursor.fetchone()
-        if not user:
-            return jsonify({"error": "Login Failed Invalid Username or Password"}), 401
 
-        password_hashed = user["password"]
+        if not email and not user:
+            return jsonify({"error": "Invalid Email Or Username Or Password !"})
+
+        if email:
+            username_add_token = email["username"]
+            role = email["role"]
+            password_hashed = email["password"]
+            user_id = email["id"]
+            
+        if user:
+            username_add_token = user["username"]
+            role = user["role"]
+            password_hashed = user["password"]
+            user_id = user["id"]
+
         password_verify = bcrypt.check_password_hash(password_hashed, password)
         if password_verify:
             token = create_access_token(
-                identity=str(user["id"]),
-                additional_claims={"username": user["username"], "role": user["role"]},
+                identity=str(user_id),
+                additional_claims={"username": username_add_token, "role": role},
             )
 
             return (
                 jsonify(
-                    {"message": "Login Success", "token": token, "role": user["role"]}
+                    {"message": "Login Success", "token": token, "role": role}
                 ),
                 200,
             )
