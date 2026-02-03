@@ -19,6 +19,7 @@ import shutil
 import yaml
 import subprocess
 import requests
+import time
 from dbutils.pooled_db import PooledDB
 
 load_dotenv()
@@ -40,17 +41,20 @@ bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 mail = Mail(app)
 
+NPM_TOKEN = None
+NPM_EXPIRED = 0
 
 POOL = PooledDB(
     creator=pymysql,
-    maxconnections=20,  
+    maxconnections=50,  
     mincached=5,
     blocking=True,
     host=os.getenv("DB_HOST"),
     user=os.getenv("DB_USER"),
     password=os.getenv("DB_PASS"),
     database=os.getenv("DB_NAME"),
-    cursorclass=pymysql.cursors.DictCursor
+    cursorclass=pymysql.cursors.DictCursor,
+    ping=2,
 )
 
 def get_db_connection():
@@ -66,6 +70,15 @@ def get_db_connection():
 #     )
 
 def get_npm_token():
+
+    global NPM_TOKEN
+    global NPM_EXPIRED
+
+    now = time.time()
+    
+    if NPM_TOKEN and now < NPM_EXPIRED:
+        return NPM_TOKEN
+
     url = f"{os.getenv('NPM_URL')}/api/tokens"
     payload = {
         "identity": os.getenv("NPM_EMAIL"),
@@ -73,7 +86,9 @@ def get_npm_token():
     }
     response = requests.post(url, json=payload, verify=False)
     if response.status_code == 200:
-        return response.json().get("token")
+        NPM_TOKEN = response.json().get("token")
+        NPM_EXPIRED = now + 3600
+        return NPM_TOKEN
     return None
 
 def nginx_add_proxy(domain, container_name, port, protocol):
@@ -871,7 +886,7 @@ def active_site():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM containers WHERE owner != %s AND publish = 1 ORDER BY created_at DESC",(username,))
+        cursor.execute("SELECT * FROM containers WHERE owner != %s AND publish = 1 ORDER BY updated_at DESC",(username,))
         system_data = cursor.fetchall()
 
         if not system_data:
