@@ -1098,7 +1098,7 @@ def del_stack():
         project_path = data["stack"]
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
         user_data = cursor.fetchone()
         user_id = user_data['id']
         container_value = int(user_data['container'])
