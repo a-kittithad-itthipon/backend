@@ -46,7 +46,7 @@ NPM_EXPIRED = 0
 
 POOL = PooledDB(
     creator=pymysql,
-    maxconnections=50,  
+    maxconnections=30,  
     mincached=5,
     blocking=True,
     host=os.getenv("DB_HOST"),
@@ -55,6 +55,7 @@ POOL = PooledDB(
     database=os.getenv("DB_NAME"),
     cursorclass=pymysql.cursors.DictCursor,
     ping=2,
+    connect_timeout=5,
 )
 
 def get_db_connection():
@@ -585,6 +586,8 @@ def dashboard_data():
                     "database": user_data["db"],
                     "req_total": req_total["total"],
                     "user_upload_total": user_upload_total["total"],
+                    "max_containers": user_data["max_containers"],
+                    "container_used": user_data["container"],
                 }
             ),
             200,
@@ -968,6 +971,11 @@ def forgot_repassword():
             "UPDATE users SET password = %s WHERE username = %s",
             (hashed, username_token),
         )
+
+        if user_data["db"] == 1:
+            cursor.execute("ALTER USER %s@'%%' IDENTIFIED BY %s", (username_token, password))
+            cursor.execute("FLUSH PRIVILEGES")
+
         conn.commit()
         return jsonify({"message": "Change Password Success"}), 200
 
@@ -1375,6 +1383,84 @@ def upload():
                 print(f"Failed to cleanup zip: {ex}")
                 
         return jsonify({"error": "Failed to fetch data"}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route("/api/status_container", methods=["POST"])
+@jwt_required()
+def status_container():
+    conn = None
+    cmd = []
+    result_action = ""
+    try:
+        data_token = get_jwt()
+        username = data_token["username"]
+        data = request.json
+        project_path = data.get("stack")
+        action = data.get("status")
+
+        if not project_path or not action:
+            return jsonify({"error": "Missing stack path or status"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        folder_name = os.path.basename(project_path)
+        docker_project_name = f"{username}_{folder_name}"
+
+        if action == "running":
+            cmd = ["docker", "compose", "-p", docker_project_name, "stop"]
+            result_action = "stopped"
+        elif action == "stopped":
+            cmd = ["docker", "compose", "-p", docker_project_name, "up", "-d"]
+            result_action = "running"
+        else:
+            return jsonify({"error": "Invalid status action"}), 400
+
+        cursor.execute("SELECT * FROM containers WHERE project_path = %s AND owner = %s",(project_path, username))
+        containers = cursor.fetchall()
+        
+        if not containers:
+            return jsonify({"error": "Stack Not Found or Permission Denied"}), 404
+
+        try:
+            result = subprocess.run(cmd, cwd=project_path, capture_output=True, text=True, timeout=300)
+            
+            log_content = (
+                f"------------[{action.upper()} LOGS]------------ \n\n"
+                f"[CMD]:\n  {result.args}\n\n\n"
+                f"[STDOUT]:\n   {result.stdout if result.stdout.strip() else '- None -'}\n\n\n"
+                f"[STDERR]:\n   {result.stderr if result.stderr.strip() else '- None -'}\n"
+            )
+
+            if result.returncode != 0:
+                return jsonify({"error": f"Docker Error: {result.stderr}"}), 500
+
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "Docker command timed out"}), 500
+        except Exception as ex:
+            return jsonify({"error": f"Error: {str(ex)}"}), 500
+
+        cursor.execute("UPDATE containers SET status = %s WHERE project_path = %s AND owner = %s",(result_action, project_path, username))
+
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        user_data = cursor.fetchone()
+
+        user_id = user_data['id']
+        full_c_name = f"STACK : {folder_name}"
+
+        cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, result_action.upper(), "SUCCESS", log_content))
+
+        conn.commit()
+
+        return jsonify({"message": f"Container {result_action} successfully"}), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Status Change Error: {e}")
+        return jsonify({"error": str(e)}), 500
     finally:
         if conn:
             conn.close()
