@@ -43,8 +43,15 @@ pip install -r requirements.txt
 
 Start the Flask server with:
 
+1. app.py
+
 ```bash
 python app.py
+```
+
+2. Celery
+```bash
+celery -A tasks worker --loglevel=info --pool=solo
 ```
 
 Once running, the app will typically be available at:
