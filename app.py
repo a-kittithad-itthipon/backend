@@ -697,10 +697,13 @@ def max_container():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE users SET max_containers = %s WHERE username = %s",
-            (max_containers, username),
-        )
+
+        container_count = int(max_containers)
+    
+        if container_count < 5 or container_count > 10:
+            return jsonify({"error": "Out of Range Must be between 6 and 10"}), 400
+
+        cursor.execute("UPDATE users SET max_containers = %s WHERE username = %s",(max_containers, username),)
         db_name = f"db_{username}"
 
         if role_token == "admin":
@@ -836,13 +839,13 @@ def logs():
         cursor = conn.cursor()
         
         if role == "admin":
-            cursor.execute("SELECT * FROM activity_logs ORDER BY created_at DESC")
+            cursor.execute("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 300")
             logs_data = cursor.fetchall()
             if not logs_data:
                 return jsonify({"error": "No Logs Data"}) , 401
             return jsonify(logs_data) , 200
         elif role == "user":
-            cursor.execute("SELECT * FROM activity_logs WHERE username = %s ORDER BY created_at DESC",(username,))
+            cursor.execute("SELECT * FROM activity_logs WHERE username = %s ORDER BY created_at DESC LIMIT 100",(username,))
             logs_data = cursor.fetchall()
             if not logs_data:
                 return jsonify({"error": "No Logs Data"}) , 401
@@ -1384,11 +1387,12 @@ def status_container():
 
         cursor.execute("UPDATE containers SET status = %s WHERE project_path = %s AND owner = %s",("pending", project_path, username))
         cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, result_action.upper(), "PENDING", log_content))
+        log_id = cursor.lastrowid
 
         conn.commit()
 
         from tasks import docker_start_stop
-        task = docker_start_stop.delay(result_action, folder_name, project_path, docker_project_name, cmd, username)
+        task = docker_start_stop.delay(result_action, folder_name, project_path, docker_project_name, cmd, username, log_id)
 
         return jsonify({"message": f"Container {result_action} Pending", "task_id": task.id }), 200
 

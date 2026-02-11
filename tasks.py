@@ -266,7 +266,7 @@ def update_system_docker(username, value_container, container_name, port, domain
             conn.close()
 
 @celery_app.task(bind=True)
-def docker_start_stop(self, result_action, folder_name, project_path, docker_project_name, cmd, username):
+def docker_start_stop(self, result_action, folder_name, project_path, docker_project_name, cmd, username, log_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
@@ -285,13 +285,13 @@ def docker_start_stop(self, result_action, folder_name, project_path, docker_pro
 
         if result.returncode != 0:
             cursor.execute("UPDATE containers SET status = %s WHERE project_path = %s AND owner = %s",("failed", project_path, username))
-            cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, f"STACK : {folder_name}", result_action.upper(), "FAILED", log_content))
+            cursor.execute("UPDATE activity_logs SET status = %s, details = %s WHERE id = %s", ("FAILED", log_content, log_id))
             conn.commit()
             return {"error": f"Error: Deployment Failed\n\n{log_content}"}
 
         cursor.execute("UPDATE containers SET status = %s WHERE project_path = %s AND owner = %s",(result_action, project_path, username))
         full_c_name = f"STACK : {folder_name}"
-        cursor.execute("INSERT INTO activity_logs (user_id, username, container_name, action, status, details) VALUES (%s, %s, %s, %s, %s, %s)", (user_id, username, full_c_name, result_action.upper(), "SUCCESS", log_content))
+        cursor.execute("UPDATE activity_logs SET status = %s, details = %s WHERE id = %s", ("SUCCESS", log_content, log_id))
         conn.commit()
 
         return {"message": f"Container {result_action} successfully"}
