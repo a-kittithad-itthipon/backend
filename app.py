@@ -1024,7 +1024,6 @@ def req_db():
         if conn:
             conn.close()
 
-
 @app.route("/api/portupdate", methods=["POST"])
 @jwt_required()
 def port_update():
@@ -1048,7 +1047,10 @@ def port_update():
 
         if not domain:
             try:
-                cursor.execute("UPDATE containers SET port_internal = %s WHERE container_name = %s AND username = %s", (port, container_name, username))
+                if port == "" or port is None:
+                    cursor.execute("UPDATE containers SET port_internal = NULL, publish = %s WHERE container_name = %s AND owner = %s", (pub, container_name, username))
+                else:
+                    cursor.execute("UPDATE containers SET port_internal = %s, publish = %s WHERE container_name = %s AND owner = %s", (port, pub, container_name, username))
                 conn.commit()
                 return jsonify({"message": "Update Port Success"}) , 201
             except Exception as e:
@@ -1056,27 +1058,29 @@ def port_update():
                     conn.rollback()
                 print("Fetch Data Error:", e)
                 return jsonify({"error": "Failed to fetch data"}), 500
+            
         elif domain:
-
-            if port_internal == port and 	forward_scheme == protocol:
+            if port_internal == port and forward_scheme == protocol or port is None or port == "":
+                if port == "" or port is None:
+                    port = int(port_internal)
                 try:
                     cursor.execute("UPDATE containers SET publish = %s WHERE container_name = %s", (pub, container_name))
                     conn.commit()
                     return jsonify({"message": "Update Publish Status Success"}), 201
                 except Exception as e:
                     return jsonify({"error": "Failed to Update Publish Status"}), 500
-            else:
+            else:                
+                if port == "" or port is None:
+                    port = int(port_internal)
                 try:
                     status , msg_npm = nginx_update_proxy(user_data["npm_id"], domain, user_data["container_name"], port, protocol)
-                    
                     if status:
                         cursor.execute("UPDATE containers SET port_internal = %s, forward_scheme = %s, 	publish = %s WHERE container_name = %s", (port, protocol, pub, container_name))
                         conn.commit()
                         return jsonify({"message": "Update Port Proxy Host and Publish Status Success"}), 201
                     else:
                         return jsonify({"error": f"NPM Update Failed: {msg_npm}"}), 500
-
-
+                    
                 except Exception as e:
                     if conn:
                         conn.rollback()
