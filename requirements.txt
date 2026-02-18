@@ -1,0 +1,15 @@
+flask
+flask-sqlalchemy
+flask-login
+flask-cors
+python-dotenv
+pyyaml
+pymysql
+gunicorn
+flask-bcrypt
+flask-jwt-extended
+flask-mail
+requests
+DBUtils
+celery
+redis
